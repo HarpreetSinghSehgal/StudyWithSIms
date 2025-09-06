@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pendulum Simulator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+body{margin:0;padding:0;font-family:sans-serif;background:linear-gradient(#f0f8ff,#e0ffff);}
+canvas{display:block;margin:0 auto;background:#f0f8ff;border-bottom:4px solid #4a6582;}
+.range-slider{width:100%;height:8px;background:#d1d5db;outline:none;border-radius:9999px;}
+.range-slider::-webkit-slider-thumb{width:20px;height:20px;background:#1d4ed8;cursor:pointer;border-radius:50%;border:2px solid white;}
+.button{transition:transform .07s;box-shadow:0 1px 2px rgba(0,0,0,.08);}
+.button:active{transform:translateY(2px);box-shadow:none;}
+.control-panel{background:white;border-radius:1rem;box-shadow:0 4px 6px rgba(0,0,0,.1);padding:1rem;margin:1rem;}
+.stats{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;}
+.stat-box{background:#f0f0f0;padding:5px 10px;border-radius:5px;min-width:120px;text-align:center;}
+#rotateNotice{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:white;color:black;font-size:1.5rem;display:flex;align-items:center;justify-content:center;text-align:center;z-index:9999;padding:20px;}
+</style>
+</head>
+<body>
+
+<div id="rotateNotice">Please rotate your mobile to landscape mode to see the full simulator.</div>
+
+<canvas id="pendulumCanvas"></canvas>
+
+<div class="control-panel">
+
+  <!-- ✅ Back to Home Button -->
+  <div class="flex justify-start mb-2">
+    <button onclick="window.location.href='index.html'" 
+            class="button bg-red-600 text-white px-3 py-1 rounded">
+      ⬅ Back to Home
+    </button>
+  </div>
+
+  <h2 class="text-2xl font-bold text-center mb-2">Pendulum Simulator</h2>
+
+  <p class="text-center mb-2 text-sm text-gray-600">
+    Period formula: <b>T = 2π √(L / g)</b>
+  </p>
+
+  <div class="grid grid-cols-1 sm:grid-cols-6 gap-2">
+    <div>Length: <span id="lengthValue">2</span> m<input type="range" id="length" min="0.5" max="5" value="2" step="0.1" class="range-slider"></div>
+    <div>Mass: <span id="massValue">10</span> kg<input type="range" id="mass" min="1" max="50" value="10" class="range-slider"></div>
+    <div>Angle: <span id="angleValue">30</span>°<input type="range" id="angle" min="5" max="90" value="30" class="range-slider"></div>
+    <div>Gravity: <span id="gravityValue">9.8</span> m/s²<input type="range" id="gravity" min="1" max="25" value="9.8" step="0.1" class="range-slider"></div>
+  </div>
+
+  <div class="flex justify-center mt-2 space-x-2">
+    <button id="startBtn" class="button bg-blue-600 text-white px-3 py-1 rounded">Start</button>
+    <button id="stopBtn" class="button bg-gray-400 text-white px-3 py-1 rounded">Stop</button>
+    <button id="resetBtn" class="button bg-green-600 text-white px-3 py-1 rounded">Reset</button>
+    <button id="stopMeanBtn" class="button bg-yellow-600 text-white px-3 py-1 rounded">Stop at Mean</button>
+    <button id="stopExtremeBtn" class="button bg-purple-600 text-white px-3 py-1 rounded">Stop at Extreme</button>
+  </div>
+
+  <div class="stats">
+    <div class="stat-box">Current Angle: <span id="statAngle">0</span>°</div>
+    <div class="stat-box">Period: <span id="statPeriod">0</span> s</div>
+    <div class="stat-box">Time Elapsed: <span id="statTime">0</span> s</div>
+    <div class="stat-box">Max Left: <span id="statMaxLeft">0</span>°</div>
+    <div class="stat-box">Max Right: <span id="statMaxRight">0</span>°</div>
+    <div class="stat-box">Potential Energy: <span id="statPE">0</span> J</div>
+    <div class="stat-box">Kinetic Energy: <span id="statKE">0</span> J</div>
+  </div>
+</div>
+
+<script>
+const canvas=document.getElementById('pendulumCanvas'),ctx=canvas.getContext('2d');
+let canvasWidth=window.innerWidth*0.95,canvasHeight=Math.min(window.innerHeight*0.6,600);
+canvas.width=canvasWidth; canvas.height=canvasHeight;
+
+let pixelsPerMeter = canvasHeight/6; 
+
+let state={
+    length:2, mass:10, angle:30, gravity:9.8,
+    theta:30*Math.PI/180, omega:0, dt:0.02,
+    running:false, origin:{x:canvasWidth/2,y:50},
+    period:0, elapsed:0, maxLeft:0, maxRight:0,
+    speedFactor:1.0,
+    stopMode:null // "mean" or "extreme"
+};
+
+// DRAW PENDULUM
+function drawPendulum(){
+    ctx.clearRect(0,0,canvasWidth,canvasHeight);
+    let lenPx = state.length*pixelsPerMeter;
+    let x=state.origin.x + lenPx*Math.sin(state.theta);
+    let y=state.origin.y + lenPx*Math.cos(state.theta);
+
+    // rod
+    ctx.strokeStyle="#1d4ed8"; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.moveTo(state.origin.x,state.origin.y); ctx.lineTo(x,y); ctx.stroke();
+
+    // bob
+    ctx.beginPath(); ctx.arc(x,y,state.mass/2,0,Math.PI*2);
+    ctx.fillStyle="#1d4ed8"; ctx.fill();
+
+    // mean line
+    ctx.beginPath(); let mx=state.origin.x, my=state.origin.y+lenPx;
+    ctx.strokeStyle="red"; ctx.setLineDash([5,5]);
+    ctx.moveTo(mx,state.origin.y); ctx.lineTo(mx,my); ctx.stroke(); ctx.setLineDash([]);
+
+    document.getElementById('statAngle').textContent=(state.theta*180/Math.PI).toFixed(1);
+    document.getElementById('statMaxLeft').textContent=(state.maxLeft*180/Math.PI).toFixed(1);
+    document.getElementById('statMaxRight').textContent=(state.maxRight*180/Math.PI).toFixed(1);
+    document.getElementById('statTime').textContent=state.elapsed.toFixed(2);
+
+    // energy calculations
+    let h=state.length*(1-Math.cos(state.theta)); // vertical displacement
+    let PE=state.mass*state.gravity*h;
+    let KE=0.5*state.mass*(state.length*state.omega)**2;
+    document.getElementById('statPE').textContent=PE.toFixed(2);
+    document.getElementById('statKE').textContent=KE.toFixed(2);
+}
+
+// PHYSICS
+function computePeriod(){
+    state.period=2*Math.PI*Math.sqrt(state.length/state.gravity);
+    document.getElementById('statPeriod').textContent=state.period.toFixed(2);
+}
+
+function updatePendulum(){
+    if(state.running){
+        let alpha = -state.gravity/state.length*Math.sin(state.theta);
+        state.omega += alpha*state.dt*state.speedFactor;
+        state.theta += state.omega*state.dt*state.speedFactor;
+        state.elapsed += state.dt*state.speedFactor;
+
+        if(state.theta < state.maxLeft) state.maxLeft = state.theta;
+        if(state.theta > state.maxRight) state.maxRight = state.theta;
+
+        // stop modes
+        if(state.stopMode==="mean" && Math.abs(state.theta)<0.02) state.running=false;
+        if(state.stopMode==="extreme" && Math.abs(state.omega)<0.02) state.running=false;
+
+        drawPendulum();
+        requestAnimationFrame(updatePendulum);
+    }
+}
+
+// EVENT LISTENERS
+['length','mass','angle','gravity'].forEach(id=>{
+    document.getElementById(id).addEventListener('input',e=>{
+        state[id] = +e.target.value;
+        if(id==='angle') state.theta = state.angle*Math.PI/180;
+        document.getElementById(id+'Value').textContent=e.target.value;
+        computePeriod(); drawPendulum();
+    });
+});
+
+document.getElementById('startBtn').addEventListener('click',()=>{state.running=true;state.stopMode=null;updatePendulum();});
+document.getElementById('stopBtn').addEventListener('click',()=>{state.running=false;});
+document.getElementById('resetBtn').addEventListener('click',()=>{
+    state.running=false;state.theta=state.angle*Math.PI/180;
+    state.omega=0;state.elapsed=0;state.maxLeft=0;state.maxRight=0;
+    drawPendulum();computePeriod();
+});
+document.getElementById('stopMeanBtn').addEventListener('click',()=>{state.stopMode="mean";});
+document.getElementById('stopExtremeBtn').addEventListener('click',()=>{state.stopMode="extreme";});
+
+// ORIENTATION
+function checkOrientation(){
+    if(window.innerWidth < window.innerHeight && window.innerWidth < 800){
+        document.getElementById('rotateNotice').style.display="flex";
+        canvas.style.display="none";
+        document.querySelector('.control-panel').style.display="none";
+    } else {
+        document.getElementById('rotateNotice').style.display="none";
+        canvas.style.display="block";
+        document.querySelector('.control-panel').style.display="block";
+        canvasWidth=window.innerWidth*0.95; canvasHeight=Math.min(window.innerHeight*0.6,600);
+        canvas.width=canvasWidth; canvas.height=canvasHeight;
+        pixelsPerMeter = canvasHeight/6;
+        state.origin={x:canvasWidth/2,y:50};
+        drawPendulum();
+    }
+}
+
+window.addEventListener('load',()=>{computePeriod();drawPendulum();checkOrientation();});
+window.addEventListener('resize',checkOrientation);
+</script>
+
+</body>
+</html>
