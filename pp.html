@@ -2,164 +2,218 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Projectile Simulator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
   body {
     margin: 0;
+    padding: 0;
     font-family: Arial, sans-serif;
-    text-align: center;
     background: linear-gradient(#87CEEB, #E0FFFF);
-  }
-  h1 {
-    margin: 10px 0;
-    font-size: clamp(18px, 5vw, 28px);
-  }
-  #controls {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 10px;
-    padding: 10px;
-  }
-  #controls label {
-    font-size: clamp(12px, 3vw, 16px);
-  }
-  #controls input {
-    width: 80px;
-    padding: 5px;
-    font-size: clamp(12px, 3vw, 16px);
-  }
-  #controls button {
-    padding: 8px 15px;
-    font-size: clamp(12px, 3vw, 16px);
-    border: none;
-    border-radius: 6px;
-    background: #4CAF50;
-    color: white;
-    cursor: pointer;
-  }
-  #controls button:hover {
-    background: #45a049;
+    flex-direction: column;
+    align-items: center;
   }
   canvas {
+    background: #87CEEB;
     display: block;
-    margin: 10px auto;
-    background: #cce7ff;
+    margin-top: 10px;
     border: 2px solid #333;
     border-radius: 10px;
-    max-width: 100%;
-    height: auto;
   }
-  #metrics {
-    font-size: clamp(12px, 3vw, 16px);
-    margin: 10px 0;
+  .controls {
+    background: #fff;
+    padding: 15px;
+    border-radius: 12px;
+    margin: 15px;
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0px 4px 10px rgba(0,0,0,0.2);
+  }
+  .controls label {
+    display: block;
+    margin: 8px 0 4px;
+    font-weight: bold;
+  }
+  .controls input[type="range"], 
+  .controls select {
+    width: 100%;
+    margin-bottom: 12px;
+  }
+
+  /* Default desktop size */
+  canvas {
+    width: 800px;
+    height: 500px;
+  }
+
+  /* Mobile/tablet optimization */
+  @media (max-width: 768px) {
+    canvas {
+      width: 100%;
+      height: 60vh;
+    }
+    .target {
+      display: none; /* Hide targets on mobile */
+    }
+    input[type="range"] {
+      height: 35px; /* Bigger slider */
+    }
+  }
+
+  /* Rotate warning overlay */
+  #rotateWarning {
+    position: fixed; 
+    top: 0; left: 0; 
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.85);
+    color: white; 
+    font-size: 22px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    z-index: 9999;
   }
 </style>
 </head>
 <body>
-  <h1>Projectile Motion Simulator</h1>
-  <div id="controls">
-    <label>Velocity (m/s): <input type="number" id="velocity" value="50"></label>
-    <label>Angle (°): <input type="number" id="angle" value="45"></label>
-    <button onclick="launch()">Launch</button>
-  </div>
-  <canvas id="simCanvas"></canvas>
-  <div id="metrics"></div>
+<h2>Projectile Simulator</h2>
+<canvas id="simCanvas" width="800" height="500"></canvas>
+
+<div class="controls">
+  <label for="projectile">Projectile:</label>
+  <select id="projectile">
+    <option value="cannonball">Cannonball</option>
+    <option value="arrow">Arrow</option>
+    <option value="rocket">Rocket</option>
+  </select>
+
+  <label for="angle">Angle: <span id="angleVal">45</span>°</label>
+  <input type="range" id="angle" min="10" max="80" value="45">
+
+  <label for="velocity">Velocity: <span id="velVal">50</span> m/s</label>
+  <input type="range" id="velocity" min="10" max="100" value="50">
+
+  <button onclick="launch()">Launch</button>
+</div>
+
+<!-- Rotate screen warning -->
+<div id="rotateWarning">
+  Please rotate your device to landscape for the best experience 📱↔️
+</div>
 
 <script>
 const canvas = document.getElementById("simCanvas");
 const ctx = canvas.getContext("2d");
 
-let canvasWidth, canvasHeight, groundY;
-let velocity = 50, angle = 45;
-let g = 9.8;
-let trajectory = [];
-let animationId = null;
+let angleSlider = document.getElementById("angle");
+let velocitySlider = document.getElementById("velocity");
+let angleVal = document.getElementById("angleVal");
+let velVal = document.getElementById("velVal");
 
-function resizeCanvas() {
-  canvasWidth = window.innerWidth * 0.95;
-  canvasHeight = Math.min(500, window.innerHeight * 0.6);
-  canvas.width = canvasWidth;
-  canvas.height = canvasHeight;
-  groundY = canvasHeight * 0.85;
-  computeTrajectory();
-  drawScene();
-}
+angleSlider.oninput = () => { angleVal.textContent = angleSlider.value; };
+velocitySlider.oninput = () => { velVal.textContent = velocitySlider.value; };
 
-function computeTrajectory() {
-  trajectory = [];
-  let rad = angle * Math.PI / 180;
-  let vx = velocity * Math.cos(rad);
-  let vy = velocity * Math.sin(rad);
-  let t = 0, dt = 0.05;
+// Projectile properties
+let projectile = {x: 50, y: 450, vx: 0, vy: 0, radius: 12, launched: false};
+let gravity = 0.5;
 
-  while (true) {
-    let x = vx * t;
-    let y = vy * t - 0.5 * g * t * t;
-    if (y < 0) break;
-    trajectory.push({ x: x, y: y });
-    t += dt;
-  }
+// Targets (hidden on mobile via CSS)
+let targets = [
+  {x: 200, y: 400, w: 50, h: 80, color: "gold"},
+  {x: 300, y: 380, w: 60, h: 100, color: "green"},
+  {x: 420, y: 390, w: 50, h: 90, color: "blue"},
+  {x: 500, y: 420, w: 40, h: 60, color: "purple"}
+];
 
-  let range = vx * (2 * vy / g);
-  let maxH = (vy * vy) / (2 * g);
-  let tFlight = (2 * vy) / g;
-
-  document.getElementById("metrics").innerHTML =
-    `Range: ${range.toFixed(2)} m | Max Height: ${maxH.toFixed(2)} m | Time of Flight: ${tFlight.toFixed(2)} s`;
-}
-
-function drawScene() {
-  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-  // Ground
+function drawGround() {
   ctx.fillStyle = "green";
-  ctx.fillRect(0, groundY, canvasWidth, canvasHeight - groundY);
+  ctx.fillRect(0, 470, canvas.width, 30);
+}
 
-  // Trajectory
-  ctx.strokeStyle = "red";
+function drawProjectile() {
   ctx.beginPath();
-  for (let i = 0; i < trajectory.length; i++) {
-    let px = trajectory[i].x * 5; // scale for visibility
-    let py = groundY - trajectory[i].y * 5;
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
-  ctx.stroke();
+  ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI*2);
+  ctx.fillStyle = "gray";
+  ctx.fill();
+  ctx.closePath();
+}
+
+function drawTargets() {
+  targets.forEach(t => {
+    ctx.fillStyle = t.color;
+    ctx.fillRect(t.x, t.y, t.w, t.h);
+  });
+}
+
+function resetProjectile() {
+  projectile.x = 50;
+  projectile.y = 450;
+  projectile.vx = 0;
+  projectile.vy = 0;
+  projectile.launched = false;
 }
 
 function launch() {
-  velocity = parseFloat(document.getElementById("velocity").value);
-  angle = parseFloat(document.getElementById("angle").value);
-  computeTrajectory();
-  animate();
+  resetProjectile();
+  let angle = Number(angleSlider.value) * Math.PI/180;
+  let velocity = Number(velocitySlider.value);
+  projectile.vx = velocity * Math.cos(angle);
+  projectile.vy = -velocity * Math.sin(angle);
+  projectile.launched = true;
 }
 
-function animate() {
-  if (animationId) cancelAnimationFrame(animationId);
-  let i = 0;
+function update() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawGround();
+  drawTargets();
 
-  function frame() {
-    drawScene();
-    if (i < trajectory.length) {
-      let px = trajectory[i].x * 5;
-      let py = groundY - trajectory[i].y * 5;
+  if (projectile.launched) {
+    projectile.x += projectile.vx * 0.3;
+    projectile.y += projectile.vy * 0.3;
+    projectile.vy += gravity;
 
-      ctx.fillStyle = "blue";
-      ctx.beginPath();
-      ctx.arc(px, py, 6, 0, 2 * Math.PI);
-      ctx.fill();
-
-      i++;
-      animationId = requestAnimationFrame(frame);
+    if (projectile.y + projectile.radius >= 470) {
+      projectile.launched = false;
     }
   }
-  frame();
+
+  drawProjectile();
+  requestAnimationFrame(update);
 }
 
-window.onload = resizeCanvas;
-window.onresize = resizeCanvas;
+// Touch-friendly sliders
+document.querySelectorAll('input[type="range"]').forEach(slider => {
+  slider.addEventListener("touchmove", (e) => {
+    let touch = e.touches[0];
+    let rect = slider.getBoundingClientRect();
+    let percent = (touch.clientX - rect.left) / rect.width;
+    slider.value = Math.min(slider.max, Math.max(slider.min,
+      Math.round(percent * (slider.max - slider.min) + Number(slider.min))
+    ));
+    slider.dispatchEvent(new Event('input'));
+  });
+});
+
+// Rotate check
+function checkOrientation() {
+  if (window.innerHeight > window.innerWidth && window.innerWidth < 900) {
+    document.getElementById("rotateWarning").style.display = "flex";
+    document.getElementById("simCanvas").style.display = "none";
+    document.querySelector(".controls").style.display = "none";
+  } else {
+    document.getElementById("rotateWarning").style.display = "none";
+    document.getElementById("simCanvas").style.display = "block";
+    document.querySelector(".controls").style.display = "block";
+  }
+}
+window.addEventListener("resize", checkOrientation);
+window.addEventListener("load", checkOrientation);
+
+update();
 </script>
 </body>
 </html>
+
