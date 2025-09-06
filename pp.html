@@ -21,7 +21,7 @@
     border: 2px solid #333;
     border-radius: 10px;
   }
-  .controls {
+  .controls, .stats {
     background: #fff;
     padding: 15px;
     border-radius: 12px;
@@ -40,28 +40,22 @@
     width: 100%;
     margin-bottom: 12px;
   }
-
-  /* Default desktop size */
   canvas {
     width: 800px;
     height: 500px;
   }
-
-  /* Mobile/tablet optimization */
   @media (max-width: 768px) {
     canvas {
       width: 100%;
       height: 60vh;
     }
     .target {
-      display: none; /* Hide targets on mobile */
+      display: none;
     }
     input[type="range"] {
-      height: 35px; /* Bigger slider */
+      height: 35px;
     }
   }
-
-  /* Rotate warning overlay */
   #rotateWarning {
     position: fixed; 
     top: 0; left: 0; 
@@ -99,7 +93,13 @@
   <button onclick="launch()">Launch</button>
 </div>
 
-<!-- Rotate screen warning -->
+<div class="stats">
+  <h3>Stats</h3>
+  <p>Range: <span id="rangeVal">0</span> m</p>
+  <p>Max Height: <span id="heightVal">0</span> m</p>
+  <p>Time of Flight: <span id="timeVal">0</span> s</p>
+</div>
+
 <div id="rotateWarning">
   Please rotate your device to landscape for the best experience 📱↔️
 </div>
@@ -117,10 +117,16 @@ angleSlider.oninput = () => { angleVal.textContent = angleSlider.value; };
 velocitySlider.oninput = () => { velVal.textContent = velocitySlider.value; };
 
 // Projectile properties
-let projectile = {x: 50, y: 450, vx: 0, vy: 0, radius: 12, launched: false};
+let projectile = {x: 50, y: 450, vx: 0, vy: 0, radius: 12, launched: false, type: "cannonball"};
 let gravity = 0.5;
 
-// Targets (hidden on mobile via CSS)
+// Stats
+let rangeVal = document.getElementById("rangeVal");
+let heightVal = document.getElementById("heightVal");
+let timeVal = document.getElementById("timeVal");
+let startX, startY, maxHeight, flightStartTime;
+
+// Targets
 let targets = [
   {x: 200, y: 400, w: 50, h: 80, color: "gold"},
   {x: 300, y: 380, w: 60, h: 100, color: "green"},
@@ -128,17 +134,37 @@ let targets = [
   {x: 500, y: 420, w: 40, h: 60, color: "purple"}
 ];
 
+// Explosions
+let explosions = [];
+
 function drawGround() {
   ctx.fillStyle = "green";
   ctx.fillRect(0, 470, canvas.width, 30);
 }
 
 function drawProjectile() {
-  ctx.beginPath();
-  ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI*2);
-  ctx.fillStyle = "gray";
-  ctx.fill();
-  ctx.closePath();
+  if (projectile.type === "cannonball") {
+    ctx.beginPath();
+    ctx.arc(projectile.x, projectile.y, 12, 0, Math.PI*2);
+    ctx.fillStyle = "gray";
+    ctx.fill();
+    ctx.closePath();
+  } else if (projectile.type === "arrow") {
+    ctx.fillStyle = "brown";
+    ctx.fillRect(projectile.x, projectile.y-2, 25, 4);
+    ctx.fillStyle = "black";
+    ctx.beginPath();
+    ctx.moveTo(projectile.x+25, projectile.y);
+    ctx.lineTo(projectile.x+35, projectile.y-5);
+    ctx.lineTo(projectile.x+35, projectile.y+5);
+    ctx.closePath();
+    ctx.fill();
+  } else if (projectile.type === "rocket") {
+    ctx.fillStyle = "red";
+    ctx.beginPath();
+    ctx.ellipse(projectile.x, projectile.y, 10, 20, 0, 0, Math.PI*2);
+    ctx.fill();
+  }
 }
 
 function drawTargets() {
@@ -148,12 +174,25 @@ function drawTargets() {
   });
 }
 
+function drawExplosions() {
+  explosions.forEach(exp => {
+    ctx.beginPath();
+    ctx.arc(exp.x, exp.y, exp.r, 0, Math.PI*2);
+    ctx.fillStyle = exp.color;
+    ctx.fill();
+  });
+  explosions = explosions.filter(exp => exp.r < 40);
+  explosions.forEach(exp => exp.r += 2);
+}
+
 function resetProjectile() {
   projectile.x = 50;
   projectile.y = 450;
   projectile.vx = 0;
   projectile.vy = 0;
   projectile.launched = false;
+  projectile.type = document.getElementById("projectile").value;
+  maxHeight = projectile.y;
 }
 
 function launch() {
@@ -163,24 +202,55 @@ function launch() {
   projectile.vx = velocity * Math.cos(angle);
   projectile.vy = -velocity * Math.sin(angle);
   projectile.launched = true;
+  startX = projectile.x;
+  startY = projectile.y;
+  flightStartTime = Date.now();
+}
+
+function checkCollision() {
+  for (let i = 0; i < targets.length; i++) {
+    let t = targets[i];
+    if (projectile.x > t.x && projectile.x < t.x + t.w &&
+        projectile.y > t.y && projectile.y < t.y + t.h) {
+      // Explosion effect
+      explosions.push({x: projectile.x, y: projectile.y, r: 10, color: "orange"});
+      targets.splice(i, 1);
+      projectile.launched = false;
+      break;
+    }
+  }
 }
 
 function update() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawGround();
   drawTargets();
+  drawExplosions();
 
   if (projectile.launched) {
     projectile.x += projectile.vx * 0.3;
     projectile.y += projectile.vy * 0.3;
     projectile.vy += gravity;
 
-    if (projectile.y + projectile.radius >= 470) {
+    if (projectile.y < maxHeight) maxHeight = projectile.y;
+
+    checkCollision();
+
+    if (projectile.y + 10 >= 470) {
       projectile.launched = false;
+      let flightTime = (Date.now() - flightStartTime) / 1000;
+      let range = (projectile.x - startX).toFixed(1);
+      let height = (startY - maxHeight).toFixed(1);
+      rangeVal.textContent = range;
+      heightVal.textContent = height;
+      timeVal.textContent = flightTime.toFixed(1);
     }
   }
 
-  drawProjectile();
+  if (projectile.launched) {
+    drawProjectile();
+  }
+
   requestAnimationFrame(update);
 }
 
@@ -203,10 +273,12 @@ function checkOrientation() {
     document.getElementById("rotateWarning").style.display = "flex";
     document.getElementById("simCanvas").style.display = "none";
     document.querySelector(".controls").style.display = "none";
+    document.querySelector(".stats").style.display = "none";
   } else {
     document.getElementById("rotateWarning").style.display = "none";
     document.getElementById("simCanvas").style.display = "block";
     document.querySelector(".controls").style.display = "block";
+    document.querySelector(".stats").style.display = "block";
   }
 }
 window.addEventListener("resize", checkOrientation);
