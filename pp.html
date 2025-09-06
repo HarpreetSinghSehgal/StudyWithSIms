@@ -15,18 +15,10 @@ canvas{display:block;margin:0 auto;background:#87CEEB;border-bottom:4px solid #4
 .control-panel{background:white;border-radius:1rem;box-shadow:0 4px 6px rgba(0,0,0,.1);padding:1rem;margin:1rem;}
 .stats{margin-top:10px;overflow-x:auto;display:flex;gap:10px;}
 .stat-box{background:#f0f0f0;padding:5px 10px;border-radius:5px;min-width:80px;text-align:center;}
-#rotateNotice {
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  background: rgba(0,0,0,0.85); color: white;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 1.5rem; text-align: center; z-index: 9999;
-  display: none;
-}
 </style>
 </head>
 <body>
 
-<div id="rotateNotice">Please rotate your device to landscape for the best experience!</div>
 <canvas id="simulatorCanvas"></canvas>
 
 <div class="control-panel">
@@ -54,7 +46,6 @@ canvas{display:block;margin:0 auto;background:#87CEEB;border-bottom:4px solid #4
 
 <script>
 const canvas=document.getElementById('simulatorCanvas'),ctx=canvas.getContext('2d');
-const rotateNotice=document.getElementById('rotateNotice');
 
 let canvasWidth=window.innerWidth*0.95,canvasHeight=Math.min(600,window.innerHeight*0.7);
 canvas.width=canvasWidth; canvas.height=canvasHeight;
@@ -86,24 +77,10 @@ function updateStats(){document.getElementById('statRange').textContent=state.st
 // ANIMATION
 function animate(){drawScene();if(state.projIndex<state.traj.length-1){state.projIndex+=0.3;let p=state.traj[Math.floor(state.projIndex)];state.stats.currentVel=Math.sqrt(Math.pow(state.traj[Math.floor(state.projIndex+1)]?.x-p.x||0,2)+Math.pow(state.traj[Math.floor(state.projIndex+1)]?.y-p.y||0,2))/0.1/DEFAULTS.pixelsPerMeter;updateStats();state.targets.forEach((t,i)=>{if(p.x>t.x&&p.x<t.x+t.width&&p.y>t.y&&p.y<t.y+t.height){state.explosions.push({x:p.x,y:p.y,r:10});state.score+=10;state.targets.splice(i,1);if(sounds.boom)sounds.boom.play();}});requestAnimationFrame(animate);}else state.launched=false;}
 
-// ORIENTATION CHECK
+// SIMPLE ORIENTATION (always show)
 function checkOrientation() {
-  const ua = navigator.userAgent;
-  const isMobileOrTablet = /Mobi|Android|iPad|Tablet/i.test(ua);
-  if(isMobileOrTablet){
-    if(window.innerHeight > window.innerWidth){
-      rotateNotice.style.display='flex';
-      canvas.style.display='none';
-    } else {
-      rotateNotice.style.display='none';
-      canvas.style.display='block';
-      drawScene();
-    }
-  } else {
-    rotateNotice.style.display='none';
-    canvas.style.display='block';
-    drawScene();
-  }
+  canvas.style.display='block';
+  drawScene();
 }
 
 // EVENTS
@@ -120,8 +97,6 @@ document.getElementById('homeBtn').addEventListener('click',()=>{window.location
 // INITIALIZE
 window.onload=function(){generateTargets();computeTrajectory();checkOrientation();}
 window.onresize=function(){canvasWidth=window.innerWidth*0.95;canvasHeight=Math.min(600,window.innerHeight*0.7);canvas.width=canvasWidth;canvas.height=canvasHeight;groundY=canvasHeight*0.85;generateTargets();computeTrajectory();checkOrientation();}
-window.addEventListener('orientationchange', checkOrientation);
-window.addEventListener('resize', checkOrientation);
 </script>
 </body>
 </html>
