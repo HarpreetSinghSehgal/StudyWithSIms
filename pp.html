@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Projectile Simulator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+body{margin:0;padding:0;font-family:sans-serif;background:linear-gradient(#87CEEB,#E0FFFF);}
+canvas{display:block;margin:0 auto;background:#87CEEB;border-bottom:4px solid #4a6582;touch-action:none;}
+.range-slider{width:100%;height:8px;background:#d1d5db;outline:none;border-radius:9999px;}
+.range-slider::-webkit-slider-thumb{width:20px;height:20px;background:#1d4ed8;cursor:pointer;border-radius:50%;border:2px solid white;}
+.button{transition:transform .07s;box-shadow:0 1px 2px rgba(0,0,0,.08);}
+.button:active{transform:translateY(2px);box-shadow:none;}
+.control-panel{background:white;border-radius:1rem;box-shadow:0 4px 6px rgba(0,0,0,.1);padding:1rem;margin:1rem;}
+.stats{margin-top:10px;overflow-x:auto;display:flex;gap:10px;}
+.stat-box{background:#f0f0f0;padding:5px 10px;border-radius:5px;min-width:80px;text-align:center;}
+#rotateNotice {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.85); color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.5rem; text-align: center; z-index: 9999;
+  display: none;
+}
+</style>
+</head>
+<body>
+
+<div id="rotateNotice">Please rotate your device to landscape for the best experience!</div>
+<canvas id="simulatorCanvas"></canvas>
+
+<div class="control-panel">
+<h2 class="text-2xl font-bold text-center mb-2">Projectile Simulator</h2>
+<div class="grid grid-cols-1 sm:grid-cols-6 gap-2">
+<div>Projectile:<select id="projType"><option value="cannonball">Cannonball</option><option value="arrow">Arrow</option><option value="rocket">Rocket</option></select></div>
+<div>Angle: <span id="angleValue">45</span>°<input type="range" id="angle" min="0" max="90" value="45" class="range-slider"></div>
+<div>Velocity: <span id="velocityValue">50</span> m/s<input type="range" id="velocity" min="10" max="120" value="50" class="range-slider"></div>
+<div>Cannon Height: <span id="cannonHeightValue">0</span> m<input type="range" id="cannonHeight" min="0" max="100" value="0" class="range-slider"></div>
+<div>Wind: <span id="windValue">0</span> m/s<input type="range" id="wind" min="-20" max="20" value="0" class="range-slider"></div>
+<div>Gravity: <span id="gravityValue">9.8</span> m/s²<input type="range" id="gravity" min="2" max="25" value="9.8" step="0.1" class="range-slider"></div>
+</div>
+<div class="flex justify-center mt-2 space-x-2">
+<button id="launchBtn" class="button bg-blue-600 text-white px-3 py-1 rounded">Launch</button>
+<button id="resetBtn" class="button bg-gray-400 text-white px-3 py-1 rounded">Reset</button>
+<button id="homeBtn" class="button bg-green-600 text-white px-3 py-1 rounded">Back to Home</button>
+</div>
+<div class="stats">
+<div class="stat-box">Range: <span id="statRange">0</span> m</div>
+<div class="stat-box">Flight Time: <span id="statTime">0</span> s</div>
+<div class="stat-box">Max Height: <span id="statHeight">0</span> m</div>
+<div class="stat-box">Current Velocity: <span id="statVelocity">0</span> m/s</div>
+</div>
+</div>
+
+<script>
+const canvas=document.getElementById('simulatorCanvas'),ctx=canvas.getContext('2d');
+const rotateNotice=document.getElementById('rotateNotice');
+
+let canvasWidth=window.innerWidth*0.95,canvasHeight=Math.min(600,window.innerHeight*0.7);
+canvas.width=canvasWidth; canvas.height=canvasHeight;
+let groundY=canvasHeight*0.85;
+
+let state={angle:45,velocity:50,cannonHeight:0,wind:0,gravity:9.8,projType:'cannonball',traj:[],projIndex:0,targets:[],explosions:[],shots:0,score:0,launched:false,stats:{range:0,time:0,maxHeight:0,currentVel:0}};
+
+const DEFAULTS={pixelsPerMeter:5,projectile:{cannonball:{mass:2.5,drag:0.05,color:"#4b5563"},arrow:{mass:0.5,drag:0.03,color:"#34d399"},rocket:{mass:3,drag:0.08,color:"#f59e42"}}};
+const sounds={launch:new Audio('https://cdn.pixabay.com/audio/2022/10/16/audio_12b3442ae4.mp3'),boom:new Audio('https://cdn.pixabay.com/audio/2022/10/16/audio_12b34e9c7a.mp3')};
+sounds.launch.volume=0.5;sounds.boom.volume=0.5;
+
+// DRAWING FUNCTIONS
+function drawBackground(){ctx.fillStyle="#87CEEB";ctx.fillRect(0,0,canvasWidth,canvasHeight);}
+function drawGround(){ctx.fillStyle="#228B22";ctx.fillRect(0,groundY,canvasWidth,canvasHeight-groundY);}
+function drawCannon(){let x=100,y=groundY-state.cannonHeight*DEFAULTS.pixelsPerMeter;ctx.save();ctx.translate(x,y);ctx.rotate(-state.angle*Math.PI/180);ctx.fillStyle="black";ctx.fillRect(0,-10,60,20);ctx.restore();ctx.beginPath();ctx.arc(x,y,20,0,Math.PI*2);ctx.fillStyle="gray";ctx.fill();}
+function drawTargets(){state.targets.forEach(t=>{ctx.fillStyle=t.color;ctx.fillRect(t.x,t.y,t.width,t.height);ctx.strokeStyle="black";ctx.strokeRect(t.x,t.y,t.width,t.height);});}
+function drawTrajectory(){ctx.beginPath();ctx.setLineDash([5,5]);ctx.strokeStyle="rgba(0,0,0,0.6)";state.traj.forEach((p,i)=>{i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y);});ctx.stroke();ctx.setLineDash([]);}
+function drawProjectile(){if(state.launched&&state.projIndex<state.traj.length){let p=state.traj[Math.floor(state.projIndex)];ctx.fillStyle=DEFAULTS.projectile[state.projType].color;if(state.projType==='arrow'){ctx.fillRect(p.x,p.y,20,4);}else{ctx.beginPath();ctx.arc(p.x,p.y,8,0,Math.PI*2);ctx.fill();}ctx.fillStyle="orange";ctx.beginPath();ctx.arc(p.x-5,p.y,6,0,Math.PI*2);ctx.fill();}}
+function drawExplosion(){state.explosions.forEach(ex=>{ctx.beginPath();ctx.arc(ex.x,ex.y,ex.r,0,Math.PI*2);ctx.fillStyle="rgba(255,69,0,0.5)";ctx.fill();ex.r+=2;});state.explosions=state.explosions.filter(ex=>ex.r<40);}
+function drawScene(){ctx.clearRect(0,0,canvasWidth,canvasHeight);drawBackground();drawGround();drawCannon();drawTargets();drawTrajectory();drawProjectile();drawExplosion();}
+
+// TARGETS
+function generateTargets(){state.targets=[];let positions=[];for(let i=0;i<5;i++){let w=30+Math.random()*20,h=30+Math.random()*20;let x,y,ok=false;while(!ok){x=canvasWidth-400+Math.random()*350;y=groundY-h;ok=!positions.some(p=>Math.abs(p-x)<w+20);if(ok)positions.push(x);}let color=["#f87171","#34d399","#60a5fa","#facc15","#a78bfa"][i];state.targets.push({x,y,width:w,height:h,color});}}
+
+// TRAJECTORY
+function computeTrajectory(){state.traj=[];let {angle,velocity,cannonHeight,wind,gravity,projType}=state;let proj=DEFAULTS.projectile[projType];let px=100,py=groundY-cannonHeight*DEFAULTS.pixelsPerMeter;let v0x=velocity*Math.cos(angle*Math.PI/180)+wind,v0y=-velocity*Math.sin(angle*Math.PI/180);let t=0,dt=0.1,x=0,y=0,maxH=0;for(let i=0;i<2000;i++){if(py+y>groundY)break;let v=Math.sqrt(v0x*v0x+v0y*v0y);let accx=0,accy=gravity;v0x+=accx*dt;v0y+=accy*dt;x+=v0x*dt*DEFAULTS.pixelsPerMeter;y+=v0y*dt*DEFAULTS.pixelsPerMeter;if(py+y<maxH){}else maxH=py+y;state.traj.push({x:px+x,y:py+y,t});t+=dt;}state.stats.range=state.traj[state.traj.length-1].x-100;state.stats.time=t;state.stats.maxHeight=(groundY-Math.min(...state.traj.map(p=>p.y)))/DEFAULTS.pixelsPerMeter;state.stats.currentVel=velocity;updateStats();}
+function updateStats(){document.getElementById('statRange').textContent=state.stats.range.toFixed(1);document.getElementById('statTime').textContent=state.stats.time.toFixed(1);document.getElementById('statHeight').textContent=state.stats.maxHeight.toFixed(1);document.getElementById('statVelocity').textContent=state.stats.currentVel.toFixed(1);}
+
+// ANIMATION
+function animate(){drawScene();if(state.projIndex<state.traj.length-1){state.projIndex+=0.3;let p=state.traj[Math.floor(state.projIndex)];state.stats.currentVel=Math.sqrt(Math.pow(state.traj[Math.floor(state.projIndex+1)]?.x-p.x||0,2)+Math.pow(state.traj[Math.floor(state.projIndex+1)]?.y-p.y||0,2))/0.1/DEFAULTS.pixelsPerMeter;updateStats();state.targets.forEach((t,i)=>{if(p.x>t.x&&p.x<t.x+t.width&&p.y>t.y&&p.y<t.y+t.height){state.explosions.push({x:p.x,y:p.y,r:10});state.score+=10;state.targets.splice(i,1);if(sounds.boom)sounds.boom.play();}});requestAnimationFrame(animate);}else state.launched=false;}
+
+// ORIENTATION CHECK
+function checkOrientation() {
+  const ua = navigator.userAgent;
+  const isMobileOrTablet = /Mobi|Android|iPad|Tablet/i.test(ua);
+  if(isMobileOrTablet){
+    if(window.innerHeight > window.innerWidth){
+      rotateNotice.style.display='flex';
+      canvas.style.display='none';
+    } else {
+      rotateNotice.style.display='none';
+      canvas.style.display='block';
+      drawScene();
+    }
+  } else {
+    rotateNotice.style.display='none';
+    canvas.style.display='block';
+    drawScene();
+  }
+}
+
+// EVENTS
+document.getElementById('angle').addEventListener('input',e=>{state.angle=+e.target.value;document.getElementById('angleValue').textContent=e.target.value;computeTrajectory();drawScene();});
+document.getElementById('velocity').addEventListener('input',e=>{state.velocity=+e.target.value;document.getElementById('velocityValue').textContent=e.target.value;computeTrajectory();drawScene();});
+document.getElementById('cannonHeight').addEventListener('input',e=>{state.cannonHeight=+e.target.value;document.getElementById('cannonHeightValue').textContent=e.target.value;computeTrajectory();drawScene();});
+document.getElementById('wind').addEventListener('input',e=>{state.wind=+e.target.value;document.getElementById('windValue').textContent=e.target.value;computeTrajectory();drawScene();});
+document.getElementById('gravity').addEventListener('input',e=>{state.gravity=+e.target.value;document.getElementById('gravityValue').textContent=e.target.value;computeTrajectory();drawScene();});
+document.getElementById('projType').addEventListener('change',e=>{state.projType=e.target.value;computeTrajectory();drawScene();});
+document.getElementById('launchBtn').addEventListener('click',()=>{state.shots+=1;state.projIndex=0;state.launched=true;if(sounds.launch)sounds.launch.play();animate();});
+document.getElementById('resetBtn').addEventListener('click',()=>{state.shots=0;state.score=0;generateTargets();computeTrajectory();drawScene();});
+document.getElementById('homeBtn').addEventListener('click',()=>{window.location.href="index.html";});
+
+// INITIALIZE
+window.onload=function(){generateTargets();computeTrajectory();checkOrientation();}
+window.onresize=function(){canvasWidth=window.innerWidth*0.95;canvasHeight=Math.min(600,window.innerHeight*0.7);canvas.width=canvasWidth;canvas.height=canvasHeight;groundY=canvasHeight*0.85;generateTargets();computeTrajectory();checkOrientation();}
+window.addEventListener('orientationchange', checkOrientation);
+window.addEventListener('resize', checkOrientation);
+</script>
+</body>
+</html>
